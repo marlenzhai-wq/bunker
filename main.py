@@ -2,9 +2,10 @@ import asyncio
 import logging
 import os
 import sys
+import types
 from pathlib import Path
 
-# Жобаның негізгі қалтасын sys.path-ке міндетті түрде қосу
+# Жобаның негізгі қалтасын sys.path-ке қосу
 BASE_DIR = Path(__file__).parent.resolve()
 sys.path.insert(0, str(BASE_DIR))
 
@@ -16,22 +17,37 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-# ҚАТЕНІ ТҮЗЕТУ (ALIAS): Жоба құрылымында 'database' қалтасы жоқ, 
-# бірақ басқа файлдар импортты 'from database.xxx' деп іздейді.
-# Ағымдағы қалтаны 'database' модулі ретінде жүйеге алдап тіркейміз.
+# --- СИСТЕМАНЫ АЛДАУ (ВИРТУАЛДЫ МОДУЛЬДЕР) ---
 try:
-    import sys as _sys
-    # Егер 'database' модулі жүйеде тіркелмеген болса, оны ағымдағы бумаға сілтейміз
-    if 'database' not in _sys.modules:
-        import types
+    # 1. 'database' модуліне сілтеме
+    if 'database' not in sys.modules:
         db_module = types.ModuleType('database')
         db_module.__path__ = [str(BASE_DIR)]
-        _sys.modules['database'] = db_module
-        logger.info("Жоба құрылымы үшін 'database' модулінің виртуалды сілтемесі жасалды.")
-except Exception as e:
-    logger.error(f"Виртуалды модуль жасау сәтсіз аяқталды: {e}")
+        sys.modules['database'] = db_module
+        logger.info("Жоба құрылымы үшін 'database' виртуалды сілтемесі жасалды.")
 
-# МОДУЛЬДЕРДІ ҚАУІПСІЗ ИМПОРТТАУ
+    # 2. 'keyboards' және 'keyboards.inline' модульдеріне сілтеме
+    # Алдымен негізгі 'inlive' файлын импорттап аламыз, өйткені батырмалар сонда
+    import inlive
+    
+    if 'keyboards' not in sys.modules:
+        keyboards_module = types.ModuleType('keyboards')
+        inline_module = types.ModuleType('keyboards.inline')
+        
+        # inlive.py ішіндегі барлық функцияларды inline модуліне көшіреміз
+        for attr in dir(inlive):
+            if not attr.startswith('__'):
+                setattr(inline_module, attr, getattr(inlive, attr))
+                
+        keyboards_module.inline = inline_module
+        sys.modules['keyboards'] = keyboards_module
+        sys.modules['keyboards.inline'] = inline_module
+        logger.info("Жоба құрылымы үшін 'keyboards.inline' виртуалды сілтемесі жасалды.")
+
+except Exception as e:
+    logger.error(f"Виртуалды модульдерді жасау кезінде қате: {e}", exc_info=True)
+
+# --- МОДУЛЬДЕРДІ ИМПОРТТАУ ---
 try:
     from aiogram import Bot, Dispatcher, Router, F
     from aiogram.client.default import DefaultBotProperties
@@ -42,10 +58,9 @@ try:
     from config import BOT_TOKEN
     from db import db
     
-    # Енді бұл импорттар ешқандай қатесіз жұмыс істейді
+    # Енді бұл модульдер қатесіз жүктеледі
     import game_service
     import reply
-    import inlive
 except Exception as e:
     logger.critical(f"Модульдерді импорттау кезінде қате: {e}", exc_info=True)
     sys.exit(1)
@@ -55,18 +70,15 @@ REQUIRED_JSON_FILES = [
     "items.json", "phobias.json", "professions.json", "skills.json", "traits.json"
 ]
 
-
 def check_json_files() -> None:
     missing_files = [f for f in REQUIRED_JSON_FILES if not (BASE_DIR / f).exists()]
     if missing_files:
         raise FileNotFoundError(f"JSON файлдар табылмады: {', '.join(missing_files)}")
 
-
-# Негізгі роутерді құру (Командаларды тікелей өңдеу үшін)
+# Командаларды тікелей өңдеуге арналған роутер
 main_router = Router(name="main_bunker_router")
 
-
-# --- ХЕНДЛЕРЛЕР (КОМАНДАЛАРДЫ ӨҢДЕУ) ---
+# --- ХЕНДЛЕРЛЕР ---
 
 @main_router.message(Command("start"))
 async def cmd_start(message: Message):
@@ -76,7 +88,6 @@ async def cmd_start(message: Message):
         "Жаңа ойын бастау үшін /startgame командасын басыңыз немесе жүргізушінің нұсқауын күтіңіз.",
         reply_markup=inlive.registration_keyboard() if hasattr(inlive, "registration_keyboard") else None
     )
-
 
 @main_router.message(Command("startgame"))
 async def cmd_startgame(message: Message):
@@ -90,27 +101,10 @@ async def cmd_startgame(message: Message):
     else:
         await message.answer("Ойынды бастау сервисі дайын емес немесе функция табылмады.")
 
-
 @main_router.callback_query(F.data == "join_game")
 async def callback_join_game(callback: CallbackQuery):
     logger.info(f"Ойынға қосылу сұранысы: {callback.from_user.id}")
     await callback.answer("Сіз тіркелдіңіз!")
-
-
-@main_router.message(Command("vote"))
-async def cmd_vote(message: Message):
-    await message.answer("Дауыс беру кезеңі басталды.")
-
-
-@main_router.message(Command("next"))
-async def cmd_next(message: Message):
-    await message.answer("Келесі кезеңге өту.")
-
-
-@main_router.message(Command("endgame"))
-async def cmd_endgame(message: Message):
-    await message.answer("Ойын аяқталды.")
-
 
 # --- СЕРВИСТІК БАСҚАРУ ---
 
@@ -118,15 +112,11 @@ async def set_bot_commands(bot: Bot) -> None:
     commands = [
         BotCommand(command="start", description="Ботты іске қосу / Басты мәзір"),
         BotCommand(command="startgame", description="Жаңа ойын бастау"),
-        BotCommand(command="vote", description="Дауыс беру кезеңін бастау"),
+        BotCommand(command="vote", description="Дауыс берегу кезеңін бастау"),
         BotCommand(command="next", description="Келесі кезеңге өту"),
         BotCommand(command="endgame", description="Ойынды мәжбүрлі түрде аяқтау"),
-        BotCommand(command="hosts", description="Жүргізушілер тізімін көру"),
-        BotCommand(command="addhost", description="Жүргізуші қосу (Тек админ)"),
-        BotCommand(command="removehost", description="Жүргізушіні алып тастау"),
     ]
     await bot.set_my_commands(commands)
-
 
 async def on_startup(bot: Bot) -> None:
     logger.info("Startup кезеңі басталды...")
@@ -135,12 +125,10 @@ async def on_startup(bot: Bot) -> None:
     await set_bot_commands(bot)
     logger.info("Bot started")
 
-
 async def on_shutdown() -> None:
     logger.info("Shutdown кезеңі басталды...")
     await db.close()
     logger.info("Bot stopped")
-
 
 async def main() -> None:
     bot = Bot(
@@ -148,10 +136,7 @@ async def main() -> None:
         default=DefaultBotProperties(parse_mode=ParseMode.HTML),
     )
     dp = Dispatcher()
-
-    # Негізгі роутерді диспетчерге тіркеу
     dp.include_router(main_router)
-    logger.info("Негізгі командалар роутері сәтті тіркелді.")
 
     dp.startup.register(on_startup)
     dp.shutdown.register(on_shutdown)
@@ -160,10 +145,7 @@ async def main() -> None:
     logger.info("Telegram-мен байланыс орнатылуда (start_polling)...")
     await dp.start_polling(bot)
 
-
 if __name__ == "__main__":
-    if sys.platform == "win32":
-        asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
     try:
         asyncio.run(main())
     except (KeyboardInterrupt, SystemExit):
