@@ -8,7 +8,7 @@ from pathlib import Path
 BASE_DIR = Path(__file__).parent.resolve()
 sys.path.insert(0, str(BASE_DIR))
 
-# Лог жүйесі
+# ЛОГ ЖҮЙЕСІ
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s - %(levelname)s - %(name)s - %(message)s",
@@ -16,6 +16,22 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
+# ҚАТЕНІ ТҮЗЕТУ (ALIAS): Жоба құрылымында 'database' қалтасы жоқ, 
+# бірақ басқа файлдар импортты 'from database.xxx' деп іздейді.
+# Ағымдағы қалтаны 'database' модулі ретінде жүйеге алдап тіркейміз.
+try:
+    import sys as _sys
+    # Егер 'database' модулі жүйеде тіркелмеген болса, оны ағымдағы бумаға сілтейміз
+    if 'database' not in _sys.modules:
+        import types
+        db_module = types.ModuleType('database')
+        db_module.__path__ = [str(BASE_DIR)]
+        _sys.modules['database'] = db_module
+        logger.info("Жоба құрылымы үшін 'database' модулінің виртуалды сілтемесі жасалды.")
+except Exception as e:
+    logger.error(f"Виртуалды модуль жасау сәтсіз аяқталды: {e}")
+
+# МОДУЛЬДЕРДІ ҚАУІПСІЗ ИМПОРТТАУ
 try:
     from aiogram import Bot, Dispatcher, Router, F
     from aiogram.client.default import DefaultBotProperties
@@ -26,7 +42,7 @@ try:
     from config import BOT_TOKEN
     from db import db
     
-    # Қажетті сервистерді импорттау
+    # Енді бұл импорттар ешқандай қатесіз жұмыс істейді
     import game_service
     import reply
     import inlive
@@ -46,7 +62,7 @@ def check_json_files() -> None:
         raise FileNotFoundError(f"JSON файлдар табылмады: {', '.join(missing_files)}")
 
 
-# Негізгі роутерді құру
+# Негізгі роутерді құру (Командаларды тікелей өңдеу үшін)
 main_router = Router(name="main_bunker_router")
 
 
@@ -55,7 +71,6 @@ main_router = Router(name="main_bunker_router")
 @main_router.message(Command("start"))
 async def cmd_start(message: Message):
     logger.info(f"Команда /start пайдаланушыдан: {message.from_user.id}")
-    # reply.py-дан немесе тікелей мәтін жіберу
     await message.answer(
         "<b>Бункер ойынына қош келдіңіз!</b>\n\n"
         "Жаңа ойын бастау үшін /startgame командасын басыңыз немесе жүргізушінің нұсқауын күтіңіз.",
@@ -67,7 +82,6 @@ async def cmd_start(message: Message):
 async def cmd_startgame(message: Message):
     logger.info(f"Команда /startgame іске қосылды. ID: {message.from_user.id}")
     if hasattr(game_service, "start_game"):
-        # Егер game_service-те дайын функция болса, соны шақырамыз
         try:
             await game_service.start_game(message)
         except Exception as e:
@@ -80,7 +94,6 @@ async def cmd_startgame(message: Message):
 @main_router.callback_query(F.data == "join_game")
 async def callback_join_game(callback: CallbackQuery):
     logger.info(f"Ойынға қосылу сұранысы: {callback.from_user.id}")
-    # Ойынға тіркелу логикасын іске қосу
     await callback.answer("Сіз тіркелдіңіз!")
 
 
@@ -136,7 +149,7 @@ async def main() -> None:
     )
     dp = Dispatcher()
 
-    # Негізгі роутерді диспетчерге міндетті түрде тіркеу
+    # Негізгі роутерді диспетчерге тіркеу
     dp.include_router(main_router)
     logger.info("Негізгі командалар роутері сәтті тіркелді.")
 
