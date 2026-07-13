@@ -4,20 +4,11 @@ import os
 import sys
 from pathlib import Path
 
-from aiogram import Bot, Dispatcher, Router
-from aiogram.client.default import DefaultBotProperties
-from aiogram.enums import ParseMode
-from aiogram.types import BotCommand
+# Жобаның негізгі қалтасын sys.path-ке міндетті түрде қосу (systemd үшін өте маңызды)
+BASE_DIR = Path(__file__).parent.resolve()
+sys.path.insert(0, str(BASE_DIR))
 
-# Проект модульдерін импорттау
-try:
-    from config import BOT_TOKEN
-    from db import db
-except ImportError as e:
-    logging.error(f"Қажетті модульдерді импорттау мүмкін болмады: {e}")
-    sys.exit(1)
-
-# Лог жүйесін баптау (systemd журналымен жақсы жұмыс істеуі үшін stdout-қа бағыттау)
+# Лог жүйесін ең басында іске қосу (барлық қателер журналға түсуі үшін)
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s - %(levelname)s - %(name)s - %(message)s",
@@ -25,27 +16,31 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-# Тексерілуі тиіс қажетті JSON файлдардың тізімі
+# Қажетті модульдерді қауіпсіз импорттау және логтау
+try:
+    from aiogram import Bot, Dispatcher, Router
+    from aiogram.client.default import DefaultBotProperties
+    from aiogram.enums import ParseMode
+    from aiogram.types import BotCommand
+    
+    from config import BOT_TOKEN
+    from db import db
+except Exception as e:
+    logger.critical(f"Модульдерді немесе конфигурацияны импорттау кезінде критикалық қате: {e}", exc_info=True)
+    sys.exit(1)
+
+# Тексерілетін JSON файлдар тізімі
 REQUIRED_JSON_FILES = [
-    "biology.json",
-    "bunker.json",
-    "disasters.json",
-    "health.json",
-    "items.json",
-    "phobias.json",
-    "professions.json",
-    "skills.json",
-    "traits.json",
+    "biology.json", "bunker.json", "disasters.json", "health.json",
+    "items.json", "phobias.json", "professions.json", "skills.json", "traits.json"
 ]
 
 
 def check_json_files() -> None:
     """Ойынға қажетті барлық JSON файлдарының бар-жоғын тексереді."""
     missing_files = []
-    base_dir = Path(__file__).parent
-
     for file_name in REQUIRED_JSON_FILES:
-        file_path = base_dir / file_name
+        file_path = BASE_DIR / file_name
         if not file_path.exists():
             missing_files.append(file_name)
 
@@ -56,32 +51,28 @@ def check_json_files() -> None:
 
 
 def auto_discover_routers() -> list[Router]:
-    """Негізгі қалтадағы барлық .py файлдардан Router объектілерін автоматты түрде тауып қайтарады."""
-    base_dir = Path(__file__).parent
+    """Негізгі қалтадағы барлық .py файлдардан Router объектілерін қауіпсіз іздейді."""
     discovered_routers = []
 
-    # Негізгі қалтадағы барлық .py файлдарды тексереміз
-    for file_path in base_dir.glob("*.py"):
-        # Негізгі жүйелік файлдарды өткізіп жібереміз
+    for file_path in BASE_DIR.glob("*.py"):
         if file_path.name in ["main.py", "config.py", "db.py", "game_states.py"]:
             continue
 
         module_name = file_path.stem
         try:
-            # Модульді динамикалық түрде импорттау
             module = __import__(module_name)
             if hasattr(module, "router") and isinstance(module.router, Router):
                 discovered_routers.append(module.router)
-                logger.info(f"Роутер сәтті табылды және жүктелді: {module_name}.router")
+                logger.info(f"Роутер сәтті жүктелді: {module_name}.router")
         except Exception as e:
-            # Импорттау кезіндегі қателерді логқа жазу, бірақ ботты тоқтатпау
+            # Импорт қателерін debug деңгейінде қалдырамыз, себебі сервистік файлдарда роутер болмауы қалыпты
             logger.debug(f"Модульді тексеру кезінде өткізіп жіберілді {module_name}: {e}")
 
     return discovered_routers
 
 
 async def set_bot_commands(bot: Bot) -> None:
-    """Бот командаларын Telegram интерфейсінде орнату."""
+    """Бот командаларын Telegram интерфейсіне орнату."""
     commands = [
         BotCommand(command="start", description="Ботты іске қосу / Басты мәзір"),
         BotCommand(command="startgame", description="Жаңа ойын бастау"),
@@ -99,67 +90,65 @@ async def set_bot_commands(bot: Bot) -> None:
 async def on_startup(bot: Bot) -> None:
     """Бот іске қосылғанда орындалатын функция."""
     logger.info("Startup кезеңі басталды...")
-
-    # 1. JSON файлдарын тексеру
     check_json_files()
-
-    # 2. Дерекқорға қосылу
     await db.connect()
-    logger.info("SQLite дерекқорына қосылу сәтті аяқталды (database.db).")
-
-    # 3. Командаларды орнату
+    logger.info("SQLite дерекқорына қосылу сәтті аяқталды.")
     await set_bot_commands(bot)
-
     logger.info("Bot started")
 
 
 async def on_shutdown() -> None:
     """Бот тоқтағанда орындалатын функция."""
     logger.info("Shutdown кезеңі басталды...")
-
-    # 1. Дерекқор байланысын жабу
     try:
         await db.close()
         logger.info("Дерекқор байланысы сәтті жабылды.")
     except Exception as e:
         logger.error(f"Дерекқорды жабу кезінде қате шықты: {e}")
-
     logger.info("Bot stopped")
 
 
 async def main() -> None:
-    # Бот объектісін жасау (Әдепкі ParseMode HTML ретінде орнатылған)
-    bot = Bot(
-        token=BOT_TOKEN,
-        default=DefaultBotProperties(parse_mode=ParseMode.HTML),
-    )
-
-    # Диспетчерді жасау
-    dp = Dispatcher()
-
-    # Роутерлерді автоматты түрде тауып тіркеу
-    routers = auto_discover_routers()
-    if routers:
-        dp.include_routers(*routers)
-        logger.info(f"Жалпы тіркелген роутерлер саны: {len(routers)}")
-    else:
-        logger.warning("Ешқандай роутер тіркелген жоқ! Назар аударыңыз, хабарламалар өңделмеуі мүмкін.")
-
-    # Startup және Shutdown оқиғаларын тіркеу
-    dp.startup.register(on_startup)
-    dp.shutdown.register(on_shutdown)
-
-    # Саябыр түрде (глушение) басқа сессияларды өткізіп жіберу
-    await bot.delete_webhook(drop_pending_updates=True)
-
-    # Polling режимінде ботты іске қосу
+    bot = None
     try:
+        logger.info("Ботты инициализациялау басталды...")
+        
+        if not BOT_TOKEN or BOT_TOKEN == "YOUR_BOT_TOKEN":
+            raise ValueError("BOT_TOKEN мәні бос немесе config.py ішінен дұрыс оқылмады!")
+
+        # Бот пен Диспетчерді құру
+        bot = Bot(
+            token=BOT_TOKEN,
+            default=DefaultBotProperties(parse_mode=ParseMode.HTML),
+        )
+        dp = Dispatcher()
+
+        # Роутерлерді автоматты тіркеу
+        routers = auto_discover_routers()
+        if routers:
+            dp.include_routers(*routers)
+            logger.info(f"Жалпы тіркелген роутерлер саны: {len(routers)}")
+        else:
+            logger.warning("Ешқандай белсенді роутер табылмады. Хабарламалар өңделмеуі мүмкін.")
+
+        # Оқиғаларды тіркеу
+        dp.startup.register(on_startup)
+        dp.shutdown.register(on_shutdown)
+
+        # Кезекте тұрып қалған ескі хабарламаларды өткізіп жіберу
+        await bot.delete_webhook(drop_pending_updates=True)
+
+        # Polling бастау
+        logger.info("Telegram-мен байланыс орнатылуда (start_polling)...")
         await dp.start_polling(bot)
+
     except Exception as e:
-        logger.critical(f"Боттың жұмысы кезінде күтпеген қате орын алды: {e}", exc_info=True)
+        logger.critical(f"Боттың негізгі жұмыс циклінде критикалық қате орын алды: {e}", exc_info=True)
+        sys.exit(1)
     finally:
-        await bot.session.close()
-        logger.info("Бот сессиясы жабылды.")
+        if bot and bot.session:
+            await bot.session.close()
+            logger.info("Бот сессиясы толық жабылды.")
 
 
 if __name__ == "__main__":
@@ -169,4 +158,4 @@ if __name__ == "__main__":
     try:
         asyncio.run(main())
     except (KeyboardInterrupt, SystemExit):
-        logger.info("Бот қолмен (Ctrl+C) немесе жүйелік сигнал арқылы тоқтатылды.")
+        logger.info("Бот жүйелік команда арқылы тоқтатылды.")
