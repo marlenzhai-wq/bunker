@@ -3,6 +3,7 @@ import logging
 import os
 import sys
 import types
+import importlib.util
 from pathlib import Path
 
 # Жобаның негізгі қалтасы
@@ -19,36 +20,26 @@ logger = logging.getLogger(__name__)
 
 # --- СЕНІМДІ ИМПОРТ ИМПОРТЕРІ (DYNAMIC PATH ALIAS) ---
 class CustomPathImporter:
-    """Кез келген 'services.xxx', 'database.xxx', 'utils.xxx' сұраныстарын
-    тікелей негізгі қалтадағы файлдарға бағыттайтын динамикалық импортер."""
     def find_spec(self, fullname, path, target=None):
         parts = fullname.split('.')
-        # Егер сұраныс біздің виртуалды бумаларға қатысты болса
         if parts[0] in ['services', 'database', 'utils', 'keyboards']:
-            # Ішкі файлдың атын анықтаймыз (мысалы: scenario_service)
             mod_name = parts[-1] if len(parts) > 1 else None
             
-            # Егер бұл keyboards.inline болса, оны inlive файлына сілтейміз
             if fullname == 'keyboards.inline':
                 mod_name = 'inlive'
                 
             if mod_name:
-                # Дискіде осындай .py файлы бар ма тексереміз
                 file_path = BASE_DIR / f"{mod_name}.py"
                 if file_path.exists():
-                    import importlib.util
                     return importlib.util.spec_from_file_location(fullname, str(file_path))
             
-            # Егер бұл негізгі буманың өзі болса (мысалы, жай ғана 'services')
             spec = importlib.util.spec_from_loader(fullname, loader=None)
             spec.submodule_search_locations = [str(BASE_DIR)]
             return spec
         return None
 
-# Импортерді жүйенің ең алдына тіркейміз
 sys.meta_path.insert(0, CustomPathImporter())
 
-# logger үшін арнайы көпір (кард-сервис іздейтін болғандықтан)
 if 'utils' not in sys.modules:
     utils_mod = types.ModuleType('utils')
     log_mod = types.ModuleType('utils.logger')
@@ -70,7 +61,6 @@ try:
     from config import BOT_TOKEN
     from db import db
     
-    # Енді бұл модульдер кез келген ішкі импортты (scenario_service т.б.) қатесіз табады
     import game_service
     import reply
     import inlive
