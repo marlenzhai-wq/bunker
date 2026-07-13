@@ -27,22 +27,24 @@ try:
         logger.info("Жоба құрылымы үшін 'database' виртуалды сілтемесі жасалды.")
 
     # 2. 'keyboards' және 'keyboards.inline' модульдеріне сілтеме
-    # Алдымен негізгі 'inlive' файлын импорттап аламыз, өйткені батырмалар сонда
     import inlive
-    
     if 'keyboards' not in sys.modules:
         keyboards_module = types.ModuleType('keyboards')
         inline_module = types.ModuleType('keyboards.inline')
-        
-        # inlive.py ішіндегі барлық функцияларды inline модуліне көшіреміз
         for attr in dir(inlive):
             if not attr.startswith('__'):
                 setattr(inline_module, attr, getattr(inlive, attr))
-                
         keyboards_module.inline = inline_module
         sys.modules['keyboards'] = keyboards_module
         sys.modules['keyboards.inline'] = inline_module
         logger.info("Жоба құрылымы үшін 'keyboards.inline' виртуалды сілтемесі жасалды.")
+
+    # 3. 'services' модуліне сілтеме (Жаңадан қосылды)
+    if 'services' not in sys.modules:
+        services_module = types.ModuleType('services')
+        services_module.__path__ = [str(BASE_DIR)]
+        sys.modules['services'] = services_module
+        logger.info("Жоба құрылымы үшін 'services' виртуалды сілтемесі жасалды.")
 
 except Exception as e:
     logger.error(f"Виртуалды модульдерді жасау кезінде қате: {e}", exc_info=True)
@@ -112,7 +114,7 @@ async def set_bot_commands(bot: Bot) -> None:
     commands = [
         BotCommand(command="start", description="Ботты іске қосу / Басты мәзір"),
         BotCommand(command="startgame", description="Жаңа ойын бастау"),
-        BotCommand(command="vote", description="Дауыс берегу кезеңін бастау"),
+        BotCommand(command="vote", description="Дауыс беру кезеңін бастау"),
         BotCommand(command="next", description="Келесі кезеңге өту"),
         BotCommand(command="endgame", description="Ойынды мәжбүрлі түрде аяқтау"),
     ]
