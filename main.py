@@ -56,46 +56,26 @@ def check_json_files() -> None:
 
 
 def auto_discover_routers() -> list[Router]:
-    """handlers немесе routers қалтасындағы барлық Router объектілерін автоматты түрде тауып қайтарады."""
+    """Негізгі қалтадағы барлық .py файлдардан Router объектілерін автоматты түрде тауып қайтарады."""
     base_dir = Path(__file__).parent
-    handlers_dir = base_dir / "handlers"
-    routers_dir = base_dir / "routers"
-
-    target_dir = None
-    if handlers_dir.is_dir():
-        target_dir = handlers_dir
-    elif routers_dir.is_dir():
-        target_dir = routers_dir
-
-    if not target_dir:
-        error_msg = (
-            "Жоба құрылымынан 'handlers' немесе 'routers' қалтасы табылмады. "
-            "Роутерлерді автоматты тіркеу мүмкін емес."
-        )
-        logger.error(error_msg)
-        raise FileNotFoundError(error_msg)
-
     discovered_routers = []
-    dir_name = target_dir.name
 
-    # Қалта ішіндегі барлық .py файлдарды іздеу
-    for file_path in target_dir.glob("*.py"):
-        if file_path.name == "__init__.py":
+    # Негізгі қалтадағы барлық .py файлдарды тексереміз
+    for file_path in base_dir.glob("*.py"):
+        # Негізгі жүйелік файлдарды өткізіп жібереміз
+        if file_path.name in ["main.py", "config.py", "db.py", "game_states.py"]:
             continue
 
-        module_name = f"{dir_name}.{file_path.stem}"
+        module_name = file_path.stem
         try:
             # Модульді динамикалық түрде импорттау
-            module = __import__(module_name, fromlist=["router"])
+            module = __import__(module_name)
             if hasattr(module, "router") and isinstance(module.router, Router):
                 discovered_routers.append(module.router)
                 logger.info(f"Роутер сәтті табылды және жүктелді: {module_name}.router")
-            else:
-                logger.warning(
-                    f"Модульде '{module_name}' ішінде 'router' объектісі табылмады немесе ол Router типіне жатпайды."
-                )
         except Exception as e:
-            logger.error(f"Модульді жүктеу кезінде қате кетті {module_name}: {e}")
+            # Импорттау кезіндегі қателерді логқа жазу, бірақ ботты тоқтатпау
+            logger.debug(f"Модульді тексеру кезінде өткізіп жіберілді {module_name}: {e}")
 
     return discovered_routers
 
@@ -163,7 +143,7 @@ async def main() -> None:
         dp.include_routers(*routers)
         logger.info(f"Жалпы тіркелген роутерлер саны: {len(routers)}")
     else:
-        logger.warning("Ешқандай роутер тіркелген жоқ!")
+        logger.warning("Ешқандай роутер тіркелген жоқ! Назар аударыңыз, хабарламалар өңделмеуі мүмкін.")
 
     # Startup және Shutdown оқиғаларын тіркеу
     dp.startup.register(on_startup)
@@ -184,7 +164,6 @@ async def main() -> None:
 
 if __name__ == "__main__":
     if sys.platform == "win32":
-        # Windows жүйесінде кездесетін SelectorEventLoop қателерінің алдын алу
         asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
 
     try:
