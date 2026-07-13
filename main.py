@@ -39,12 +39,28 @@ try:
         sys.modules['keyboards.inline'] = inline_module
         logger.info("Жоба құрылымы үшін 'keyboards.inline' виртуалды сілтемесі жасалды.")
 
-    # 3. 'services' модуліне сілтеме (Жаңадан қосылды)
+    # 3. 'services' модуліне сілтеме
     if 'services' not in sys.modules:
         services_module = types.ModuleType('services')
         services_module.__path__ = [str(BASE_DIR)]
         sys.modules['services'] = services_module
         logger.info("Жоба құрылымы үшін 'services' виртуалды сілтемесі жасалды.")
+
+    # 4. 'utils' және 'utils.logger' модульдеріне сілтеме (Жаңадан қосылды)
+    if 'utils' not in sys.modules:
+        utils_module = types.ModuleType('utils')
+        logger_module = types.ModuleType('utils.logger')
+        
+        # get_logger функциясы шақырылса, стандартты логгерді қайтаратындай етеміз
+        def get_logger(name=None):
+            return logging.getLogger(name or "bunker_bot")
+            
+        setattr(logger_module, 'get_logger', get_logger)
+        utils_module.logger = logger_module
+        
+        sys.modules['utils'] = utils_module
+        sys.modules['utils.logger'] = logger_module
+        logger.info("Жоба құрылымы үшін 'utils.logger' виртуалды сілтемесі жасалды.")
 
 except Exception as e:
     logger.error(f"Виртуалды модульдерді жасау кезінде қате: {e}", exc_info=True)
@@ -60,7 +76,7 @@ try:
     from config import BOT_TOKEN
     from db import db
     
-    # Енді бұл модульдер қатесіз жүктеледі
+    # Модульдер енді толықтай жүктеледі
     import game_service
     import reply
 except Exception as e:
