@@ -13,11 +13,11 @@ from typing import Final
 
 
 # Replace 0 with the Telegram ID of the only super administrator.
-SUPER_ADMIN_ID: Final[int] = 0
+SUPER_ADMIN_ID: Final[int] = 8109812467
 
 # Keep the token out of source control.  For PowerShell:
 #   $env:BOT_TOKEN = "123456:ABC..."
-BOT_TOKEN: Final[str] = os.getenv("BOT_TOKEN", "")
+BOT_TOKEN: Final[str] = os.getenv("BOT_TOKEN", "8993407919:AAFaiLMYpplEHouVpHxd0Q4wXWXuZHhpDWc")
 DATABASE_PATH: Final[Path] = Path(os.getenv("DATABASE_PATH", "bunker.db"))
 LOG_LEVEL: Final[str] = os.getenv("LOG_LEVEL", "INFO")
 
