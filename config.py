@@ -20,6 +20,7 @@ SUPER_ADMIN_ID: Final[int] = 8109812467
 BOT_TOKEN: Final[str] = os.getenv("BOT_TOKEN", "8993407919:AAFaiLMYpplEHouVpHxd0Q4wXWXuZHhpDWc")
 DATABASE_PATH: Final[Path] = Path(os.getenv("DATABASE_PATH", "bunker.db"))
 LOG_LEVEL: Final[str] = os.getenv("LOG_LEVEL", "INFO")
+CHANNEL_ID: Final[int] = -1002734539362
 
 
 @dataclass(frozen=True, slots=True)
