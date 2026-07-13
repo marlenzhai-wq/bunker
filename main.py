@@ -5,7 +5,7 @@ import sys
 import types
 from pathlib import Path
 
-# Жобаның негізгі қалтасын sys.path-ке қосу
+# Жобаның негізгі қалтасы
 BASE_DIR = Path(__file__).parent.resolve()
 sys.path.insert(0, str(BASE_DIR))
 
@@ -17,53 +17,47 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-# --- СИСТЕМАНЫ АЛДАУ (ВИРТУАЛДЫ МОДУЛЬДЕР) ---
-try:
-    # 1. 'database' модуліне сілтеме
-    if 'database' not in sys.modules:
-        db_module = types.ModuleType('database')
-        db_module.__path__ = [str(BASE_DIR)]
-        sys.modules['database'] = db_module
-        logger.info("Жоба құрылымы үшін 'database' виртуалды сілтемесі жасалды.")
-
-    # 2. 'keyboards' және 'keyboards.inline' модульдеріне сілтеме
-    import inlive
-    if 'keyboards' not in sys.modules:
-        keyboards_module = types.ModuleType('keyboards')
-        inline_module = types.ModuleType('keyboards.inline')
-        for attr in dir(inlive):
-            if not attr.startswith('__'):
-                setattr(inline_module, attr, getattr(inlive, attr))
-        keyboards_module.inline = inline_module
-        sys.modules['keyboards'] = keyboards_module
-        sys.modules['keyboards.inline'] = inline_module
-        logger.info("Жоба құрылымы үшін 'keyboards.inline' виртуалды сілтемесі жасалды.")
-
-    # 3. 'services' модуліне сілтеме
-    if 'services' not in sys.modules:
-        services_module = types.ModuleType('services')
-        services_module.__path__ = [str(BASE_DIR)]
-        sys.modules['services'] = services_module
-        logger.info("Жоба құрылымы үшін 'services' виртуалды сілтемесі жасалды.")
-
-    # 4. 'utils' және 'utils.logger' модульдеріне сілтеме (Жаңадан қосылды)
-    if 'utils' not in sys.modules:
-        utils_module = types.ModuleType('utils')
-        logger_module = types.ModuleType('utils.logger')
-        
-        # get_logger функциясы шақырылса, стандартты логгерді қайтаратындай етеміз
-        def get_logger(name=None):
-            return logging.getLogger(name or "bunker_bot")
+# --- СЕНІМДІ ИМПОРТ ИМПОРТЕРІ (DYNAMIC PATH ALIAS) ---
+class CustomPathImporter:
+    """Кез келген 'services.xxx', 'database.xxx', 'utils.xxx' сұраныстарын
+    тікелей негізгі қалтадағы файлдарға бағыттайтын динамикалық импортер."""
+    def find_spec(self, fullname, path, target=None):
+        parts = fullname.split('.')
+        # Егер сұраныс біздің виртуалды бумаларға қатысты болса
+        if parts[0] in ['services', 'database', 'utils', 'keyboards']:
+            # Ішкі файлдың атын анықтаймыз (мысалы: scenario_service)
+            mod_name = parts[-1] if len(parts) > 1 else None
             
-        setattr(logger_module, 'get_logger', get_logger)
-        utils_module.logger = logger_module
-        
-        sys.modules['utils'] = utils_module
-        sys.modules['utils.logger'] = logger_module
-        logger.info("Жоба құрылымы үшін 'utils.logger' виртуалды сілтемесі жасалды.")
+            # Егер бұл keyboards.inline болса, оны inlive файлына сілтейміз
+            if fullname == 'keyboards.inline':
+                mod_name = 'inlive'
+                
+            if mod_name:
+                # Дискіде осындай .py файлы бар ма тексереміз
+                file_path = BASE_DIR / f"{mod_name}.py"
+                if file_path.exists():
+                    import importlib.util
+                    return importlib.util.spec_from_file_location(fullname, str(file_path))
+            
+            # Егер бұл негізгі буманың өзі болса (мысалы, жай ғана 'services')
+            spec = importlib.util.spec_from_loader(fullname, loader=None)
+            spec.submodule_search_locations = [str(BASE_DIR)]
+            return spec
+        return None
 
-except Exception as e:
-    logger.error(f"Виртуалды модульдерді жасау кезінде қате: {e}", exc_info=True)
+# Импортерді жүйенің ең алдына тіркейміз
+sys.meta_path.insert(0, CustomPathImporter())
+
+# logger үшін арнайы көпір (кард-сервис іздейтін болғандықтан)
+if 'utils' not in sys.modules:
+    utils_mod = types.ModuleType('utils')
+    log_mod = types.ModuleType('utils.logger')
+    log_mod.get_logger = lambda name=None: logging.getLogger(name or "bunker_bot")
+    utils_mod.logger = log_mod
+    sys.modules['utils'] = utils_mod
+    sys.modules['utils.logger'] = log_mod
+
+logger.info("Барлық ішкі импорттар үшін динамикалық жүйе іске қосылды.")
 
 # --- МОДУЛЬДЕРДІ ИМПОРТТАУ ---
 try:
@@ -76,9 +70,10 @@ try:
     from config import BOT_TOKEN
     from db import db
     
-    # Модульдер енді толықтай жүктеледі
+    # Енді бұл модульдер кез келген ішкі импортты (scenario_service т.б.) қатесіз табады
     import game_service
     import reply
+    import inlive
 except Exception as e:
     logger.critical(f"Модульдерді импорттау кезінде қате: {e}", exc_info=True)
     sys.exit(1)
@@ -93,7 +88,6 @@ def check_json_files() -> None:
     if missing_files:
         raise FileNotFoundError(f"JSON файлдар табылмады: {', '.join(missing_files)}")
 
-# Командаларды тікелей өңдеуге арналған роутер
 main_router = Router(name="main_bunker_router")
 
 # --- ХЕНДЛЕРЛЕР ---
